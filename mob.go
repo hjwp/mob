@@ -29,6 +29,8 @@ var (
 	workingDir                 = ""
 	args                       []string
 	GitPassthroughStderrStdout = false // hack to get git hooks to print to stdout/stderr
+	currentBranch              Branch
+	localBranches              []string
 )
 
 func openCommandFor(c config.Configuration, filepath string) (string, []string) {
@@ -108,6 +110,7 @@ func (branch Branch) remote(configuration config.Configuration) Branch {
 }
 
 func (branch Branch) hasRemoteBranch(configuration config.Configuration) bool {
+	say.Info("checking remote branch")
 	remoteBranches := gitRemoteBranches()
 	remoteBranch := branch.remote(configuration).Name
 	say.Debug("Remote Branches: " + strings.Join(remoteBranches, "\n"))
@@ -251,6 +254,7 @@ func run(osArgs []string) {
 	say.TurnOnDebuggingByArgs(args)
 	say.Debug(runtime.Version())
 
+	say.Info("checking git version")
 	versionString := gitVersion()
 	if versionString == "" {
 		say.Error("'git' command was not found in PATH. It may be not installed. " +
@@ -265,15 +269,20 @@ func run(osArgs []string) {
 		Exit(1)
 	}
 
+	say.Info("checking root dir")
 	projectRootDir := ""
+	say.Info("checking isGit")
 	if isGit() {
+		say.Info("checking gitrootdir")
 		projectRootDir = gitRootDir()
+		say.Info("checking hascommits")
 		if !hasCommits() {
 			say.Error("Git repository does not have any commits yet. Please create an initial commit.")
 			Exit(1)
 		}
 	}
 
+	say.Info("checking config")
 	configuration := config.ReadConfiguration(projectRootDir)
 	say.Debug("Args '" + strings.Join(args, " ") + "'")
 	currentCliName := currentCliName(args[0])
@@ -282,6 +291,7 @@ func run(osArgs []string) {
 		configuration.CliName = currentCliName
 	}
 
+	say.Info("parsing args")
 	command, parameters, configuration := config.ParseArgs(args, configuration)
 	say.Debug("command '" + command + "'")
 	say.Debug("parameters '" + strings.Join(parameters, " ") + "'")
@@ -293,6 +303,7 @@ func run(osArgs []string) {
 		GitPassthroughStderrStdout = true
 	}
 
+	say.Info("executing")
 	execute(command, parameters, configuration)
 }
 
@@ -1062,7 +1073,12 @@ func isMobProgramming(configuration config.Configuration) bool {
 }
 
 func gitBranches() []string {
-	return strings.Split(silentgit("branch", "--format=%(refname:short)"), "\n")
+	say.Info("Checking local branches")
+
+	if len(localBranches) == 0 {
+		localBranches = strings.Split(silentgit("branch", "--format=%(refname:short)"), "\n")
+	}
+	return localBranches
 }
 
 func gitRemoteBranches() []string {
@@ -1070,8 +1086,13 @@ func gitRemoteBranches() []string {
 }
 
 func gitCurrentBranch() Branch {
-	// upgrade to branch --show-current when git v2.21 is more widely spread
-	return newBranch(silentgit("rev-parse", "--abbrev-ref", "HEAD"))
+	say.Info("Determining current branch")
+	if (currentBranch == Branch{}) { // cache check
+		// upgrade to branch --show-current when git v2.21 is more widely spread
+		currentBranch = newBranch(silentgit("rev-parse", "--abbrev-ref", "HEAD"))
+	}
+	return currentBranch
+
 }
 
 func doBranchesDiverge(ancestor string, successor string) bool {
